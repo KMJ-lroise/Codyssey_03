@@ -1,6 +1,10 @@
+import json
 import math
+import time
+from pathlib import Path
 
 EPSILON = 1e-9
+REPEAT = 10
 
 def make_matrix(n):
     """n행 n열의 숫자 표를 만들고 모든 칸을 0으로 채웁니다."""
@@ -118,6 +122,60 @@ def print_matrix(name, matrix):
         print(" ".join(f"{value:g}" for value in row))
 
 
+def measure_mac_ms(pattern, filt, repeat=REPEAT):
+    """필터 하나의 MAC 계산을 반복 측정하고 평균 ms를 반환합니다."""
+    elapsed = 0.0
+
+    for _ in range(repeat):
+        start = time.perf_counter()
+        mac(pattern, filt)
+        end = time.perf_counter()
+
+        elapsed += end - start
+
+    return elapsed / repeat * 1000
+
+
+def load_data():
+    """main.py와 같은 폴더에 있는 data.json을 읽습니다."""
+    data_path = Path(__file__).resolve().parent / "data.json"
+
+    with data_path.open("r", encoding="utf-8-sig") as file:
+        return json.load(file)
+
+
+def preview_data():
+    """JSON의 키, 필터 크기, 패턴의 기대 정답을 확인합니다."""
+    data = load_data()
+
+    print("=== JSON 구조 확인 ===")
+    print("최상위 키:", ", ".join(data.keys()))
+
+    print("\n필터 목록:")
+    for filter_key, filters in data["filters"].items():
+        for label, matrix in filters.items():
+            rows = len(matrix)
+            row_lengths = [len(row) for row in matrix]
+            print(
+                f"{filter_key} / {label}: "
+                f"행 수={rows}, 각 행의 열 수={row_lengths}"
+            )
+
+    print("\n패턴 목록:")
+    for case_key, case in data["patterns"].items():
+        matrix = case["input"]
+        rows = len(matrix)
+        row_lengths = [len(row) for row in matrix]
+        expected = case["expected"]
+
+        print(
+            f"{case_key}: 행 수={rows}, "
+            f"각 행의 열 수={row_lengths}, expected={expected}"
+        )
+
+    print(f"\n전체 패턴 수: {len(data['patterns'])}")
+
+
 def main():
     print("=== Mini NPU Simulator: 사용자 입력 기능 확인 ===")
 
@@ -143,6 +201,14 @@ def main():
         print(f"판정: 판정 불가 (점수 차이 < {EPSILON:g})")
     else:
         print(f"판정: {result}")
+
+    average_ms = measure_mac_ms(pattern, filter_a)
+    n = len(pattern)
+
+    print(f"\n=== 성능 분석: {REPEAT}회 평균 ===")
+    print("측정 대상: 입력 패턴과 필터 A의 MAC 함수 호출")
+    print("크기(N×N) | 평균 시간(ms) | MAC 연산 횟수(N²)")
+    print(f"{n}x{n} | {average_ms:.6f} | {n * n}")
 
 
 if __name__ == "__main__":
