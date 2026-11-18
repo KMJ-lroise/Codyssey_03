@@ -1,3 +1,4 @@
+import re
 import json
 import math
 import time
@@ -136,6 +137,58 @@ def measure_mac_ms(pattern, filt, repeat=REPEAT):
     return elapsed / repeat * 1000
 
 
+def parse_size_key(key, is_pattern=False):
+    """필터 또는 패턴 키의 형식을 검사하고 크기 N을 반환합니다."""
+    if is_pattern:
+        rule = r"size_([1-9][0-9]*)_[1-9][0-9]*"
+    else:
+        rule = r"size_([1-9][0-9]*)"
+
+    match = re.fullmatch(rule, key) if isinstance(key, str) else None
+
+    if match is None:
+        raise ValueError(f"키 형식 오류: {key}")
+
+    return int(match.group(1))
+
+
+def validate_matrix(matrix, n):
+    """배열이 N×N이며 모든 값이 유한한 숫자인지 검사합니다."""
+    if not isinstance(matrix, list) or len(matrix) != n:
+        raise ValueError(f"행 수 오류: {n}행이 필요합니다.")
+
+    for row_index, row in enumerate(matrix, start=1):
+        if not isinstance(row, list) or len(row) != n:
+            raise ValueError(
+                f"{row_index}행의 열 수 오류: {n}개가 필요합니다."
+            )
+
+        for value in row:
+            if type(value) not in (int, float):
+                raise ValueError(
+                    f"{row_index}행의 값 오류: 숫자가 필요합니다."
+                )
+
+            if isinstance(value, float) and not math.isfinite(value):
+                raise ValueError(
+                    f"{row_index}행의 값 오류: 유한한 숫자가 필요합니다."
+                )
+
+
+def normalize_label(raw):
+    """정답 라벨을 Cross 또는 X로 통일합니다."""
+    if not isinstance(raw, str):
+        return None
+
+    labels = {
+        "cross": "Cross",
+        "+": "Cross",
+        "x": "X",
+    }
+
+    return labels.get(raw.strip().lower())
+
+
 def load_data():
     """main.py와 같은 폴더에 있는 data.json을 읽습니다."""
     data_path = Path(__file__).resolve().parent / "data.json"
@@ -174,6 +227,41 @@ def preview_data():
         )
 
     print(f"\n전체 패턴 수: {len(data['patterns'])}")
+
+
+def check_data_structure():
+    """실제 JSON의 키, 배열 크기, 정답 라벨을 검사합니다."""
+    data = load_data()
+
+    print("=== 필터 검증 ===")
+    for filter_key, filters in data["filters"].items():
+        n = parse_size_key(filter_key)
+
+        for label in ("cross", "x"):
+            validate_matrix(filters[label], n)
+
+        print(f"{filter_key}: {n}x{n}, cross/x 배열 정상")
+
+    print("\n=== 패턴 검증 ===")
+    for case_key, case in data["patterns"].items():
+        n = parse_size_key(case_key, is_pattern=True)
+        filter_key = f"size_{n}"
+
+        if filter_key not in data["filters"]:
+            raise ValueError(f"{case_key}: 대응하는 필터가 없습니다.")
+
+        validate_matrix(case["input"], n)
+        expected = normalize_label(case["expected"])
+
+        if expected is None:
+            raise ValueError(f"{case_key}: 알 수 없는 expected 라벨입니다.")
+
+        print(
+            f"{case_key}: {n}x{n}, "
+            f"필터={filter_key}, expected={expected}, 데이터 정상"
+        )
+
+    print(f"\n검증 완료: 패턴 {len(data['patterns'])}개")
 
 
 def main():
