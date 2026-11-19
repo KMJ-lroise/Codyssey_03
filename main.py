@@ -264,6 +264,105 @@ def check_data_structure():
     print(f"\n검증 완료: 패턴 {len(data['patterns'])}개")
 
 
+def run_case(case_key, case, filters):
+    """패턴 하나를 검사하고 점수, 판정, 성공 여부를 반환합니다."""
+    result = {
+        "case": case_key,
+        "score_cross": None,
+        "score_x": None,
+        "predicted": "-",
+        "expected": "-",
+        "status": "FAIL",
+        "reason": "",
+    }
+
+    try:
+        n = parse_size_key(case_key, is_pattern=True)
+        if not isinstance(case, dict) or not isinstance(filters, dict):
+            raise ValueError("패턴과 필터 묶음은 객체여야 합니다.")
+
+        expected = normalize_label(case["expected"])
+        if expected is None:
+            raise ValueError(f"알 수 없는 expected 라벨: {case['expected']!r}")
+        result["expected"] = expected
+
+        pattern = case["input"]
+        pair = filters[f"size_{n}"]
+        if not isinstance(pair, dict):
+            raise ValueError("크기별 필터 묶음은 객체여야 합니다.")
+
+        cross_filter = pair["cross"]
+        x_filter = pair["x"]
+        validate_matrix(pattern, n)
+        validate_matrix(cross_filter, n)
+        validate_matrix(x_filter, n)
+
+        score_cross = mac(pattern, cross_filter)
+        score_x = mac(pattern, x_filter)
+        if not all(math.isfinite(v) for v in (score_cross, score_x)):
+            raise OverflowError("MAC 계산 결과가 유한한 숫자가 아닙니다.")
+
+        result["score_cross"] = score_cross
+        result["score_x"] = score_x
+        predicted = judge(score_cross, score_x, "Cross", "X")
+        result["predicted"] = predicted
+
+        if predicted == expected:
+            result["status"] = "PASS"
+        elif predicted == "UNDECIDED":
+            result["reason"] = f"점수 차이가 {EPSILON:g} 미만이므로 판정 불가"
+        else:
+            result["reason"] = f"기대 정답 {expected}와 실제 판정 {predicted} 불일치"
+
+    except KeyError as error:
+        result["reason"] = f"데이터 오류: 필수 키 없음 {error}"
+    except (ValueError, TypeError) as error:
+        result["reason"] = f"데이터 오류: {error}"
+    except OverflowError as error:
+        result["reason"] = f"수치 계산 오류: {error}"
+
+    return result
+
+
+def run_json_analysis(data=None):
+    """각 케이스의 결과와 전체 통과·실패 수를 출력합니다."""
+    try:
+        if data is None:
+            data = load_data()
+        if not isinstance(data, dict):
+            raise ValueError("JSON 최상위는 객체여야 합니다.")
+
+        filters = data["filters"]
+        patterns = data["patterns"]
+        if not isinstance(filters, dict) or not isinstance(patterns, dict):
+            raise ValueError("filters와 patterns는 객체여야 합니다.")
+    except (OSError, ValueError, KeyError) as error:
+        print(f"JSON 분석 시작 실패: {error}")
+        return []
+
+    results = []
+    print("=== JSON 판정 결과 ===")
+    print("케이스 | Cross 점수 | X 점수 | 판정 | expected | 결과")
+
+    for case_key, case in patterns.items():
+        result = run_case(case_key, case, filters)
+        results.append(result)
+        cross_text = "-" if result["score_cross"] is None else f"{result['score_cross']:.6f}"
+        x_text = "-" if result["score_x"] is None else f"{result['score_x']:.6f}"
+        print(
+            f"{case_key} | {cross_text} | {x_text} | "
+            f"{result['predicted']} | {result['expected']} | {result['status']}"
+        )
+
+    passed = sum(result["status"] == "PASS" for result in results)
+    print(f"\n전체: {len(results)} | PASS: {passed} | FAIL: {len(results) - passed}")
+    for result in results:
+        if result["status"] == "FAIL":
+            print(f"- {result['case']}: {result['reason']}")
+
+    return results
+
+
 def main():
     print("=== Mini NPU Simulator: 사용자 입력 기능 확인 ===")
 
