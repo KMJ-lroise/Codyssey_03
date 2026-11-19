@@ -324,6 +324,34 @@ def run_case(case_key, case, filters):
     return result
 
 
+def print_json_performance(data, results):
+    """크기별로 계산 가능한 첫 패턴과 Cross 필터의 시간을 측정합니다."""
+    samples = {}
+    for result in results:
+        if result["score_cross"] is None or result["score_x"] is None:
+            continue
+
+        case_key = result["case"]
+        n = parse_size_key(case_key, is_pattern=True)
+        if n not in samples:
+            samples[n] = case_key
+
+    print(f"\n=== 성능 분석: {REPEAT}회 평균 ===")
+    print("측정 대상: 크기별 첫 계산 가능 패턴과 Cross 필터의 MAC 함수 호출")
+    print("크기(N×N) | 평균 시간(ms) | MAC 연산 횟수(N²) | 사용 패턴")
+
+    for n in (5, 13, 25):
+        if n not in samples:
+            print(f"{n}x{n} | 측정 불가 | {n * n} | 계산 가능한 패턴 없음")
+            continue
+
+        case_key = samples[n]
+        pattern = data["patterns"][case_key]["input"]
+        cross_filter = data["filters"][f"size_{n}"]["cross"]
+        average_ms = measure_mac_ms(pattern, cross_filter)
+        print(f"{n}x{n} | {average_ms:.6f} | {n * n} | {case_key}")
+
+
 def run_json_analysis(data=None):
     """각 케이스의 결과와 전체 통과·실패 수를 출력합니다."""
     try:
@@ -354,6 +382,9 @@ def run_json_analysis(data=None):
             f"{result['predicted']} | {result['expected']} | {result['status']}"
         )
 
+    print_json_performance(data, results)
+
+    print("\n=== 결과 요약 ===")
     passed = sum(result["status"] == "PASS" for result in results)
     print(f"\n전체: {len(results)} | PASS: {passed} | FAIL: {len(results) - passed}")
     for result in results:
@@ -363,8 +394,8 @@ def run_json_analysis(data=None):
     return results
 
 
-def main():
-    print("=== Mini NPU Simulator: 사용자 입력 기능 확인 ===")
+def run_input_mode():
+    print("=== Mini NPU Simulator: 사용자 입력 모드 ===")
 
     filter_a = read_matrix("필터 A")
     filter_b = read_matrix("필터 B")
@@ -396,6 +427,26 @@ def main():
     print("측정 대상: 입력 패턴과 필터 A의 MAC 함수 호출")
     print("크기(N×N) | 평균 시간(ms) | MAC 연산 횟수(N²)")
     print(f"{n}x{n} | {average_ms:.6f} | {n * n}")
+    print("\n=== 결과 요약 ===")
+    label = "판정 불가" if result == "UNDECIDED" else result
+    print(f"A 점수: {score_a:g} | B 점수: {score_b:g} | 최종 판정: {label}")
+    print("사용자 입력 모드는 기대 정답이 없어 PASS/FAIL을 집계하지 않습니다.")
+
+
+def main():
+    print("=== Mini NPU Simulator ===")
+    print("1. 사용자 입력 모드 (3×3)")
+    print("2. data.json 분석 모드 (5×5, 13×13, 25×25)")
+
+    while True:
+        choice = input("모드를 선택하세요 (1 또는 2): ").strip()
+        if choice == "1":
+            run_input_mode()
+            break
+        if choice == "2":
+            run_json_analysis()
+            break
+        print("입력 오류: 1 또는 2를 입력하세요.")
 
 
 if __name__ == "__main__":
