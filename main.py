@@ -22,6 +22,31 @@ def make_matrix(n):
     return matrix
 
 
+def generate_cross(n):
+    """3 이상의 홀수 크기로 십자가 패턴을 만듭니다."""
+    if type(n) is not int or n < 3 or n % 2 == 0:
+        raise ValueError("크기는 3 이상의 홀수 정수여야 합니다.")
+
+    matrix = make_matrix(n)
+    center = n // 2
+    for index in range(n):
+        matrix[center][index] = 1.0
+        matrix[index][center] = 1.0
+    return matrix
+
+
+def generate_x(n):
+    """3 이상의 홀수 크기로 X 패턴을 만듭니다."""
+    if type(n) is not int or n < 3 or n % 2 == 0:
+        raise ValueError("크기는 3 이상의 홀수 정수여야 합니다.")
+
+    matrix = make_matrix(n)
+    for index in range(n):
+        matrix[index][index] = 1.0
+        matrix[index][n - 1 - index] = 1.0
+    return matrix
+
+
 def mac(pattern, filt):
     """같은 크기의 정사각형 패턴과 필터를 곱하고 더합니다."""
     total = 0.0
@@ -31,6 +56,26 @@ def mac(pattern, filt):
         for column_index in range(n):
             total += pattern[row_index][column_index] * filt[row_index][column_index]
 
+    return total
+
+
+def flatten_matrix(matrix):
+    """2차원 배열을 행 순서대로 이어 붙인 1차원 리스트로 만듭니다."""
+    flat = []
+    for row in matrix:
+        for value in row:
+            flat.append(value)
+    return flat
+
+
+def mac_1d(pattern, filt):
+    """길이가 같은 1차원 리스트의 MAC 점수를 계산합니다."""
+    if len(pattern) != len(filt):
+        raise ValueError("패턴과 필터의 길이가 같아야 합니다.")
+
+    total = 0.0
+    for index in range(len(pattern)):
+        total += pattern[index] * filt[index]
     return total
 
 
@@ -123,13 +168,13 @@ def print_matrix(name, matrix):
         print(" ".join(f"{value:g}" for value in row))
 
 
-def measure_mac_ms(pattern, filt, repeat=REPEAT):
-    """필터 하나의 MAC 계산을 반복 측정하고 평균 ms를 반환합니다."""
+def measure_mac_ms(pattern, filt, repeat=REPEAT, mac_func=mac):
+    """지정한 MAC 함수를 반복 측정하고 평균 ms를 반환합니다."""
     elapsed = 0.0
 
     for _ in range(repeat):
         start = time.perf_counter()
-        mac(pattern, filt)
+        mac_func(pattern, filt)
         end = time.perf_counter()
 
         elapsed += end - start
@@ -394,11 +439,69 @@ def run_json_analysis(data=None):
     return results
 
 
+def run_generated_checks():
+    """자동 생성 패턴의 모양, 점수, 계산 시간을 확인합니다."""
+    print_matrix("자동 생성 3×3 십자가", generate_cross(3))
+    print_matrix("자동 생성 3×3 X", generate_x(3))
+
+    print(f"\n=== 자동 생성 패턴 검증 및 성능: {REPEAT}회 평균 ===")
+    print("측정 대상: 자동 생성 X 패턴과 X 필터의 MAC 함수 호출")
+    print("크기 | Cross/Cross | Cross/X | X/Cross | X/X | 평균 시간(ms) | N²")
+    for n in (3, 5, 13, 25):
+        cross = generate_cross(n)
+        x_pattern = generate_x(n)
+        cc = mac(cross, cross)
+        cx = mac(cross, x_pattern)
+        xc = mac(x_pattern, cross)
+        xx = mac(x_pattern, x_pattern)
+        average_ms = measure_mac_ms(x_pattern, x_pattern)
+        print(
+            f"{n}x{n} | {cc:g} | {cx:g} | {xc:g} | {xx:g} | "
+            f"{average_ms:.6f} | {n * n}"
+        )
+
+def run_layout_comparison():
+    """동일한 X 패턴·필터로 2차원과 1차원 MAC을 비교합니다."""
+    print(f"=== 2차원·1차원 MAC 비교: 각 {REPEAT}회 평균 ===")
+    print("측정 대상: 자동 생성 X 패턴과 X 필터, 배열 생성·변환 시간 제외")
+    print("크기 | 2D 점수 | 1D 점수 | 점수 차이 | 비교 | 2D(ms) | 1D(ms) | 2D/1D")
+
+    for n in (3, 5, 13, 25):
+        pattern = generate_x(n)
+        filt = generate_x(n)
+        flat_pattern = flatten_matrix(pattern)
+        flat_filter = flatten_matrix(filt)
+
+        score_2d = mac(pattern, filt)
+        score_1d = mac_1d(flat_pattern, flat_filter)
+        difference = abs(score_2d - score_1d)
+        status = "PASS" if difference < EPSILON else "FAIL"
+
+        time_2d = measure_mac_ms(pattern, filt, mac_func=mac)
+        time_1d = measure_mac_ms(flat_pattern, flat_filter, mac_func=mac_1d)
+        ratio = f"{time_2d / time_1d:.2f}" if time_1d > 0 else "-"
+
+        print(
+            f"{n}x{n} | {score_2d:g} | {score_1d:g} | {difference:.3g} | "
+            f"{status} | {time_2d:.6f} | {time_1d:.6f} | {ratio}"
+        )
+
 def run_input_mode():
     print("=== Mini NPU Simulator: 사용자 입력 모드 ===")
 
-    filter_a = read_matrix("필터 A")
-    filter_b = read_matrix("필터 B")
+    print("1. 필터 A와 B 직접 입력")
+    print("2. 기본 필터 자동 생성 (A: 십자가, B: X)")
+    while True:
+        choice = input("필터 준비 방법을 선택하세요 (1 또는 2): ").strip()
+        if choice == "1":
+            filter_a = read_matrix("필터 A")
+            filter_b = read_matrix("필터 B")
+            break
+        if choice == "2":
+            filter_a = generate_cross(3)
+            filter_b = generate_x(3)
+            break
+        print("입력 오류: 1 또는 2를 입력하세요.")
 
     print_matrix("필터 A", filter_a)
     print_matrix("필터 B", filter_b)
